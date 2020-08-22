@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,71 +8,49 @@ import (
 	"strings"
 
 	"github.com/anmitsu/go-shlex"
+	"github.com/spf13/pflag"
 )
 
 var (
 	configPath string
+	command    string
 	verbose    bool
 )
 
-func init() { // Yeah yeah inits are bad go away
-	flag.StringVar(&configPath, "config", os.ExpandEnv("$HOME/.config/tau.toml"), "sets the config file to use")
-	flag.BoolVar(&verbose, "v", false, "enables verbose logging")
-
-	flag.Usage = func() {
-		fmt.Printf("Usage of %s:\n", os.Args[0])
-		fmt.Printf("%s [FLAGS]... [FILE] [COMMAND]\n", os.Args[0])
-		flag.PrintDefaults()
-	}
-}
-
-func fatalf(format string, args ...interface{}) {
-	fmt.Printf(format, args...)
-	os.Exit(1)
-}
-
 func main() {
-	flag.Parse()
+	pflag.StringVarP(&configPath, "config", "c", os.ExpandEnv("$HOME/.config/tau.toml"), "sets the config file to use")
+	pflag.BoolVarP(&verbose, "verbose", "v", false, "enables verbose logging")
+	pflag.StringVar(&command, "command", "", "sets the command to use when uploading")
+	pflag.Args()
 
-	args := flag.Args()
-
-	if len(args) < 2 {
-		flag.Usage()
-		return
+	pflag.Usage = func() {
+		fmt.Printf("Usage of %s:\n", os.Args[0])
+		fmt.Printf("%s [FLAGS]... [FILE]...\n", os.Args[0])
+		pflag.PrintDefaults()
 	}
 
-	targetFile := args[0]
-	commandToExecute := args[1]
+	pflag.Parse()
+
+	args := pflag.Args()
 
 	conf, err := getConf(configPath)
 	if err != nil {
-		fatalf("could not get config file: %s", err)
-	}
-
-	if targetFile == "" {
-		if len(args) < 1 {
-			fatalf("cannot transform nothing (file was unset)")
-		}
-
-		targetFile = args[0]
-	}
-
-	newName, err := doTransform(targetFile, conf)
-	if err != nil {
-		fatalf("could not transform path: %s", err)
-	}
-
-	if err := Execute(commandToExecute, targetFile, newName); err != nil {
-		fatalf("error occurred while executing command: %s", err)
-	}
-
-}
-
-func verboseLog(msgs ...interface{}) {
-	if !verbose {
+		fmt.Printf("could not get config file: %s\n", err)
 		return
 	}
-	fmt.Println(msgs...)
+	for _, targetFile := range args {
+		newName, err := doTransform(targetFile, conf)
+		if err != nil {
+			fmt.Printf("could not transform path: %s\n", err)
+			continue
+		}
+
+		if err := Execute(command, targetFile, newName); err != nil {
+			fmt.Printf("error occurred while executing command: %s\n", err)
+			continue
+		}
+	}
+
 }
 
 func verboseLogf(format string, args ...interface{}) {
@@ -119,6 +96,11 @@ func printCmd(cmd []string) string {
 }
 
 func Execute(command, targetFile, newName string) error {
+	if command == "" {
+		fmt.Println("No command supplied, not executing")
+		return nil
+	}
+
 	split, err := shlex.Split(command, true)
 	if err != nil {
 		return fmt.Errorf("could not parse command: %w", err)
